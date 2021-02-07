@@ -1,0 +1,480 @@
+---
+title: "N-gram Prediction Model"
+author: "suszanna"
+date: "1/31/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### N-gram Prediction Model
+
+### 1 Executive Summary 
+This report addresses an instance of an N-gram Prediction Model by using Natural Language Processing in R.  It is the final project from the Coursera/Johns Hopkins course in a certification for the Data Science Specialization, the 'Data Science Capstone Project'.  The data is sourced in collaboration with Coursera and SwiftKey and can be found here:
+https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+
+We begin with a raw alpha-numeric textual data set and remove all but alphas, arranging them in a table or dictionary.  Through a series of pre-processing steps, we continue to clean the data until it is ready to be input to the n-gram algorithm which outputs uni-grams, bi-grams and tri-grams. These predict best guess of the word that follows according to the instances within our data. Accuracy and run-time efficiency are addressed.  Scripts written in R verify accuracy models against a simple data set and are included in the appendix. The outputs of each vary almost imperceptibly with each run-time and account for the variation in accuracy of tracked statistics included in each method's header. This app is designed to run on a full sized back end server so that it can be scaled as needed in the future, as it will be open sourced for others to leverage to assist as they realize mastery in the field of data science.
+
+### 2 Project Description
+Here, we describe an N-gram prediction model with optimized performance and accuracy. We provide supporting statistics.  The goal of the Prediction Model project is to create a full working model with reasonable performance & accuracy as expected by an audience of executives interested in sales.  The audience is not necessarily technical, therefore technical jargon is limited. We entertain creative exploration as data science, in addition to being based in science is also an art. 
+
+Basically, the N-gram prediction model predicts the next word likely to be used in a sentence by considering the last word given, after running it's algorithm through a large preprocessed classification data set.  To implement this prediction model, on completion of the exploratory analysis, the data is cleaned and tokenized into dictionaries of words. Finally, we build the model noting accuracy of the output and efficiency in run time. Word clouds and bar-plots are provided to visualize the data sets once converted to predictive n-gram format. The appendix stresses implementations of methods for Accuracy.
+       
+
+```{r, getLibs,  include=FALSE}
+# load packages
+library(stringi)
+library(stringr)
+library(ggplot2)
+library(lattice)
+library(caret)
+
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(bitops)
+library(tibble)
+library(rattle)
+
+library(NLP)
+library(tm)
+library(RWeka)
+library(wordcloud)
+library(SnowballC)
+
+library(tau)
+library(Matrix)
+library(data.table)
+library(parallel)
+library(reshape2)
+```
+
+### 3 Preprocess Data: load, clean, create Sample & Corpus for analysis
+
+```{r loadData, include=FALSE}
+#setwd("/Users/susanlmartin/coursera/course10/data/final/en_US")
+
+#read in blogs and twitter datasets
+blogs<-readLines("/Users/susanlmartin/coursera/course10/data/final/en_US/en_US.blogs.csv",encoding="UTF-8")
+
+twitter<-readLines("/Users/susanlmartin/coursera/course10/data/final/en_US/en_US.twitter.txt",encoding="UTF-8")
+
+#read in news dataset in binary mode
+tmpV<-file("/Users/susanlmartin/coursera/course10/data/final/en_US/en_US.news.txt",open="rb")
+news<-readLines(tmpV,encoding="UTF-8")
+```
+
+###### remove temp files
+```{r, deleteTmpFile,  include=FALSE}
+close(tmpV)
+rm(tmpV)
+```
+###### sample format of our raw data
+```{r rawdata}
+twitter[1:2]
+```
+
+###### remove non English words
+```{r, cleanData, include=FALSE}
+blogs<-iconv(blogs,"latin1","ASCII",sub="")
+blogs[1:3]
+
+news<-iconv(news,"latin1","ASCII",sub="")
+news[1:3]
+
+twitter<-iconv(twitter,"latin1","ASCII",sub="")
+twitter[1:3]
+```
+
+###### size of raw data sets
+```{r, dataAnalysis,  echo=FALSE}
+
+#size of data sets
+length(blogs)
+length(news)
+length(twitter)
+```
+
+```{r wclccc, include=FALSE}
+
+#word counts of raw data sets- blogs, news, twitter
+blogsWC<-stri_count_words(blogs)
+sum(blogsWC)
+summary(blogsWC)
+
+newsWC<-stri_count_words(news)
+sum(newsWC)
+summary(newsWC)
+
+twitterWC<-stri_count_words(twitter)
+sum(twitterWC)
+summary(twitterWC)
+
+# character counts of raw data sets - blogs, news, twitter
+ncharblogs<-sum(nchar(blogs))
+ncharblogs
+
+ncharnews<-sum(nchar(news))
+ncharnews
+
+nchartwitter<-sum(nchar(twitter))
+nchartwitter
+```
+
+```{r, sampleData, echo=FALSE}
+#Take a sample of 500 from each dataset
+blogsSample<-sample(blogs,500,replace=FALSE)
+newsSample<-sample(news,500,replace=FALSE)
+twitterSample<-sample(twitter,500,replace=FALSE)
+```
+
+##### preprocessing continues - create corpus
+```{r, createCorpus}
+#combine samples
+sample<-c(blogsSample,newsSample,twitterSample)
+#length(sample)
+#summary(sample)
+
+#load sample data as corpus
+corpus<-VCorpus(VectorSource(sample))
+#corpus
+length(corpus)
+```
+
+```{r, preProcessData, include = FALSE}
+# Remove non-alphas, numerics and white space -make all lc
+toSpace<-content_transformer(function(x,pattern)gsub(pattern,"",x))
+corpus<-tm_map(corpus,toSpace,"/")
+corpus<-tm_map(corpus,toSpace,"@")
+corpus<-tm_map(corpus,toSpace,"\\|")
+corpus<-tm_map(corpus,content_transformer(tolower))
+corpus<-tm_map(corpus,removeNumbers)
+corpus<-tm_map(corpus,removePunctuation)
+corpus<-tm_map(corpus,stripWhitespace)
+corpus<-tm_map(corpus,stemDocument)
+```
+
+###### Preprocessing continues: create Term Document Matrix (TDM) from corpus & adjust sparsity index
+```{r, termDocumentMatrix_wordFreq, echo=FALSE}
+tdm<-TermDocumentMatrix(corpus)
+tdm
+
+#dtms <- removeSparseTerms(tdm, 0.99)
+dtms <- removeSparseTerms(tdm, 0.89)
+dtms
+```
+
+```{r make dtms matrix, echo=FALSE}
+inspect(dtms)
+m<-as.matrix(dtms)
+
+m1<-sort(rowSums(m),decreasing=TRUE)
+d<-data.frame(word=names(m1),freq=m1)
+```
+
+```{r review, include=FALSE}
+# review what we have here
+names(d)
+str(d)
+summary(d)
+```
+
+```{r trainingDS,  include=FALSE}
+#Challenge for another day
+training <- d
+dim(training)
+
+threshold <- dim(training)[1] * 0.95
+threshold
+
+```
+
+##### Preprocessed data is now in matrix/dictionary format as input to n-gram prediction model:
+```{r sampleDataReady}
+head(d,10)
+```
+
+```{r makeWordcloud,  echo=FALSE}
+library(wordcloud)
+set.seed(123)
+wordcloud(words=d$word,d$freq,min.freq=10,max.words=200,random.order=FALSE,scale=c(8,0.5),
+          colors=brewer.pal(8,"Dark2"))
+```
+
+```{r, barplot, echo=FALSE}
+barplot(d[1:20,]$freq,las=2,names.arg=d[1:20,]$word,col="orange",main="Most Frequent Words",
+        ylab="Word Frequencies")
+```
+
+### 4 Generation & Visualization of N-gram Prediction models - predict next word
+
+##### UNIGRAM - Tokenize and Create n-gram dataframe for unigram prediction
+```{r, unigram, echo=FALSE}
+#create unigram & tokenize
+UnigramTokenizer<-function(x)NGramTokenizer(x,Weka_control(min=1,max=1))
+unigram<-TermDocumentMatrix(corpus,control=list(tokenize=UnigramTokenizer))
+
+#extract freqs and sort for barplot
+unifreq<-sort(rowSums(as.matrix(unigram)),decreasing=TRUE)
+unifreqDF<-data.frame(word1=names(unifreq),freq=unifreq)
+head(unifreqDF,10)
+
+#unigram wordcloud
+set.seed(123)
+wordcloud(words=unifreqDF$word1,unifreqDF$freq,min.freq=10,max.words=200,random.order=FALSE,
+          scale=c(8,0.5),colors=brewer.pal(5,"Dark2"))
+
+#unigram barplot
+names(unifreq)=c("the","and","that","for","you","was","with","have","this","but")
+barplot(unifreqDF[1:10,]$freq,las=2,names.arg=unifreqDF[1:10,]$word1,col="dark  blue",cex.names=0.8,
+        ylab="Frequency",main="Most Frequent Unigrams")
+
+```
+
+##### BIGRAM - Tokenize and Create n-gram dataframe for bigram prediction
+```{r, bigram, echo=FALSE}
+BigramTokenizer<-function(x)NGramTokenizer(x,Weka_control(min=2,max=2))
+bigram<-TermDocumentMatrix(corpus,control=list(tokenize=BigramTokenizer))
+
+#extract freqs and sort for barplot
+bifreq<-sort(rowSums(as.matrix(bigram)),decreasing=TRUE)
+bifreqDF<-data.frame(word2=names(bifreq),freq=bifreq)
+head(bifreqDF,10)
+
+#bigram wordcloud
+set.seed(123)
+wordcloud(words=bifreqDF$word2,bifreqDF$freq,min.freq=5,max.words=200,random.order=FALSE,
+          scale=c(5,0.2),colors=brewer.pal(5,"Dark2"))
+
+#bigram barplot 
+names(bifreq)=c("of the","in the","to the","for the","on the","to be","at the","and the", "in a","with the")
+barplot(bifreqDF[1:10,]$freq,las=2,names.arg=bifreqDF[1:10,]$word2,col="orange",cex.names=0.8,
+        ylab="Frequency",main="Most Frequent Bigrams")
+```
+
+##### TRIGRAM - Tokenize and Create n-gram dataframe for trigram prediction
+```{r, trigram, echo=FALSE}
+TrigramTokenizer<-function(x)NGramTokenizer(x,Weka_control(min=3,max=3))
+trigram<-TermDocumentMatrix(corpus,control=list(tokenize=TrigramTokenizer))
+
+#extract freqs and sort for barplot 
+trifreq<-sort(rowSums(as.matrix(trigram)),decreasing=TRUE)
+trifreqDF<-data.frame(word3=names(trifreq),freq=trifreq)
+head(trifreqDF,10)
+
+#trigram wordcloud
+set.seed(123)
+wordcloud(words=trifreqDF$word3,trifreqDF$freq,min.freq=5,max.words=200,random.order=FALSE,
+          scale=c(3,0.2),colors=brewer.pal(5,"Dark2"))
+
+#trigram barplot
+names(trifreq)=c("one of the","a lot of","i want to","be abl to","part of the","thank for the", "if you have","it was a","out of the","to be a")
+barplot(trifreqDF[1:10,]$freq,las=2,names.arg=trifreqDF[1:10,]$word3,col="dark green",cex.names=0.8,
+        ylab="Frequency",main="Most Frequent Trigrams")
+
+```
+
+### 5 Appendix: Computational Methods for estimates in Accuracy
+
+Below are instances of 5 different methods to estimate the n-gram model accuracy:
+             Data Split, Bootstrap, k-fold Cross Validation, 
+             Repeated k-fold Cross Validation, and Leave One Out Cross Validation
+
+Although these accuracy models are not exactly compatible with classification data, they are of interest when considering the application of automated accuracy models.  Here, accuracy is tracked using the simple Iris data set described below.  The process is to test a training sample in order to output a reliable prediction by execution of the algorithm.  A well known and simple data set, the Iris data set contains 3 classes of 50 instances each, where each class refers to a type of iris plant. One class is linearly separable from the other 2; the latter are NOT linearly separable from each other.  The predicted attribute is the class of iris plant.
+
+Optional alternate data set to Iris
+```{r contrastMatrix, include = FALSE}
+
+library(randomForest)
+set.seed(101)
+
+training <- read.csv("/Users/susanlmartin/coursera/course10/data/final/en_US/pml-training.csv", na.strings = c("NA", ""))
+
+testing <- read.csv("/Users/susanlmartin/coursera/course10/data/final/en_US/pml-testing.csv", na.strings = c("NA", ""))
+
+dim(training)
+dim(testing)
+
+```             
+####  Estimate Accuracy by Data Split method
+Data splitting involves partitioning the data into an explicit training dataset used to prepare the model and an unseen test dataset used to evaluate the models performance on unseen data.  It is useful when you have a very large dataset so that the test dataset can provide a meaningful estimation of performance, or for when you are using slow methods and need a quick approximation of performance.  The example below splits the iris dataset so that 80% is used for training a Naive Bayes model and 20% is used to evaluate the models performance.
+
+##### EXAMPLE 1: data split - returns Accuracy = 1.0, 0.933, 0.966, 0.966
+input: confusion matrix (Accuracy metric varies with each execution)
+Prediction    setosa  versicolor virginica
+   setosa         10          0         0
+   versicolor      0          9         1
+   virginica       0          1         9
+output: Accuracy (overall) 1.0 (confusion matrix values vary with runtime)
+model: naive bayes
+Predicted attribute: class of iris plant
+
+```{r loadMoreLibs}
+library(lattice)
+library(caret)
+library(MASS)
+library(klaR)
+```
+
+```{r dataSplit, echo=FALSE}
+
+# load data
+data(iris)
+
+# define an 80%/20% train/test split - get training data set
+split=0.80
+trainIndex <- createDataPartition(iris$Species, p=split, list=FALSE)
+data_train <- iris[ trainIndex,]
+data_test <- iris[-trainIndex,]
+
+# train a naive bayes model
+model <- NaiveBayes(Species~., data=data_train)
+
+# The predicted attribute is the class of iris plant
+# make predictions
+x_test <- data_test[,1:4]
+y_test <- data_test[,5]
+
+x <- x_test
+predictions <- predict(model, newdata=x_test)
+predictions$class
+predictions$class[1]
+
+# summarize results, get accuracy metric
+confusionMatrix(predictions$class, y_test)
+plot(model)
+```
+
+####  Estimate Accuracy by Bootstrap method
+Bootstrap sampling involves taking random samples from the dataset (with re-selection) against which to evaluate the model. In aggregate, the results provide an indication of the variance of the models performance. Typically, large number of resampling iterations are performed (thousands or tends of thousands).  The following example uses a bootstrap with 10 resamples to prepare a Naive Bayes model.
+
+##### EXAMPLE 2: Bootstrap - returns Accuracy = 0.958, 0.953, 0.949
+input:  The final values used for the model were fL = 0, usekernel = TRUE and adjust = 1
+output: Accuracy = 0.958, 0.953, 0.949
+model: naive bayes
+Predicted attribute: class of iris plant
+
+```{r bootStrap, echo = FALSE}
+# load libs
+library(caret)
+
+# load dataset
+data(iris)
+
+# define training control
+train_control <- trainControl(method="boot", number=100)
+
+# train the model
+model <- train(Species~., data=iris, trControl=train_control, method="nb")
+
+# The predicted attribute is the class of iris plant.
+# summarize outcome, get accuracy metric
+print(model)
+plot(model)
+```
+
+####  Estimate Accuracy by k-fold Cross Validation method
+The k-fold cross validation method involves splitting the dataset into k-subsets. For each subset is held out while the model is trained on all other subsets. This process is completed until accuracy is determine for each instance in the dataset, and an overall accuracy estimate is provided. It is a robust method for estimating accuracy, and the size of k and tune the amount of bias in the estimate, with popular values set to 3, 5, 7 and 10.The following example uses 10-fold cross validation to estimate Naive Bayes on the iris dataset.
+
+##### EXAMPLE 3 k-fold cross validation - returns Accuracy = 0.967, 1.0, 1.0
+Input: Confusion matrix
+## Prediction   setosa versicolor virginica
+##   setosa         10          0         0
+##   versicolor      0         10         1
+##   virginica       0          0         9
+output: Balanced Accuracy per class: Sentosa: 1.0000 Versicolor: 0.9750 Virginica: 0.9500
+model: naive bayes
+Predicted attribute: class of iris plant
+
+```{r kFoldCrossValidation, echo=FALSE}
+
+# load data
+data(iris)
+length(iris)
+
+# define an 80%/20% train/test split of the dataset
+split=0.80
+trainIndex <- createDataPartition(iris$Species, p=split, list=FALSE)
+
+data_train <- iris[ trainIndex,]
+data_test <- iris[-trainIndex,]
+
+# train nb model
+model <- NaiveBayes(Species~., data=data_train)
+
+# The predicted attribute is the class of iris plant.
+# make predictions
+x_test <- data_test[,1:4]
+y_test <- data_test[,5]
+predictions <- predict(model, x_test)
+predictions$class
+predictions$class[1]
+
+# summarize outcome, get accuracy metric
+confusionMatrix(predictions$class, y_test)
+plot(model)
+```
+
+#### Estimate Accuracy by Repeated k-fold Cross Validation method
+The process of splitting the data into k-folds can be repeated a number of times, this is called Repeated k-fold Cross Validation. The final model accuracy is taken as the mean from the number of repeats.The following example uses 10-fold cross validation with 3 repeats to estimate Naive Bayes on the iris dataset.
+
+##### EXAMPLE 4: Repeated k-fold cross validation - returns accuracy 0.957, 0.955, 0.955
+input:  The final values used for the model were fL = 0, usekernel = TRUE and adjust = 1
+output: Accuracy = 0.957, 0.955, 0.955
+model: naive bayes
+Predicted attribute: class of iris plant
+
+```{r repeatedK-foldXvalid, echo = FALSE}
+# load libs
+library(caret)
+
+# load data
+data(iris)
+
+# define training control
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+# train the model
+model <- train(Species~., data=iris, trControl=train_control, method="nb")
+
+# The predicted attribute is the class of iris plant.
+# summarize results, get Accuracy metric
+print(model)
+plot(model)
+```
+
+#### Estimate Accuracy by Leave One Out Cross Validation method
+In Leave One Out Cross Validation (LOOCV), a data instance is left out and a model constructed on all other data instances in the training set. This is repeated for all data instances. The following example demonstrates LOOCV to estimate Naive Bayes on the iris dataset. 
+
+unifreqDF data: When LOOVC is applied to our dataset, unifreqDF, as is, time to finish is over 1 hour, so would need to reduce the sample size for this demo.
+
+##### EXAMPLE 5: LOOCV - returns accuracy 0.960, 0.953, 0.960
+input: The final values used with for the model were fL= 0, usekernel= TRUE and adjust= 1
+output: Accuracy = 0.960, 0.953, 0.960
+model: naive bayes
+Predicted attribute: class of iris plant
+
+```{r LeaveOneOut, echo=FALSE}
+
+# load libs
+library(caret)
+
+# load data
+data(iris)
+
+# define training control
+train_control <- trainControl(method="LOOCV")
+
+# train the model
+model <- train(Species~., data=iris, trControl=train_control, method="nb")
+
+# The predicted attribute is the class of iris plant.
+# summarize results, get Accuracy metric 
+print(model)
+plot(model)
+```
+
+```{r}
+#note: 'include=FALSE' is applied to areas of code not of immediate relevance to a summary presentation.  Scripts may be accessed through the appendix as open sourced material.
+```
