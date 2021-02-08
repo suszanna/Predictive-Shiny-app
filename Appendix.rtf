@@ -1,0 +1,210 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1671\cocoasubrtf600
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 ### 5 Appendix: Computational Methods for estimates in Accuracy\
+\
+Below are instances of 5 different methods to estimate the n-gram model accuracy:\
+             Data Split, Bootstrap, k-fold Cross Validation, \
+             Repeated k-fold Cross Validation, and Leave One Out Cross Validation\
+\
+Although these accuracy models are not exactly compatible with classification data, they are of interest when considering the application of automated accuracy models.  Here, accuracy is tracked using the simple Iris data set described below.  The process is to test a training sample in order to output a reliable prediction by execution of the algorithm.  A well known and simple data set, the Iris data set contains 3 classes of 50 instances each, where each class refers to a type of iris plant. One class is linearly separable from the other 2; the latter are NOT linearly separable from each other.  The predicted attribute is the class of iris plant.\
+\
+Optional alternate data set to Iris\
+```\{r contrastMatrix, include = FALSE\}\
+\
+library(randomForest)\
+set.seed(101)\
+\
+training <- read.csv("/Users/susanlmartin/coursera/course10/data/final/en_US/pml-training.csv", na.strings = c("NA", ""))\
+\
+testing <- read.csv("/Users/susanlmartin/coursera/course10/data/final/en_US/pml-testing.csv", na.strings = c("NA", ""))\
+\
+dim(training)\
+dim(testing)\
+\
+```             \
+####  Estimate Accuracy by Data Split method\
+Data splitting involves partitioning the data into an explicit training dataset used to prepare the model and an unseen test dataset used to evaluate the models performance on unseen data.  It is useful when you have a very large dataset so that the test dataset can provide a meaningful estimation of performance, or for when you are using slow methods and need a quick approximation of performance.  The example below splits the iris dataset so that 80% is used for training a Naive Bayes model and 20% is used to evaluate the models performance.\
+\
+##### EXAMPLE 1: data split - returns Accuracy = 1.0, 0.933, 0.966, 0.966\
+input: confusion matrix (Accuracy metric varies with each execution)\
+Prediction    setosa  versicolor virginica\
+   setosa         10          0         0\
+   versicolor      0          9         1\
+   virginica       0          1         9\
+output: Accuracy (overall) 1.0 (confusion matrix values vary with runtime)\
+model: naive bayes\
+Predicted attribute: class of iris plant\
+\
+```\{r loadMoreLibs\}\
+library(lattice)\
+library(caret)\
+library(MASS)\
+library(klaR)\
+```\
+\
+```\{r dataSplit, echo=FALSE\}\
+\
+# load data\
+data(iris)\
+\
+# define an 80%/20% train/test split - get training data set\
+split=0.80\
+trainIndex <- createDataPartition(iris$Species, p=split, list=FALSE)\
+data_train <- iris[ trainIndex,]\
+data_test <- iris[-trainIndex,]\
+\
+# train a naive bayes model\
+model <- NaiveBayes(Species~., data=data_train)\
+\
+# The predicted attribute is the class of iris plant\
+# make predictions\
+x_test <- data_test[,1:4]\
+y_test <- data_test[,5]\
+\
+x <- x_test\
+predictions <- predict(model, newdata=x_test)\
+predictions$class\
+predictions$class[1]\
+\
+# summarize results, get accuracy metric\
+confusionMatrix(predictions$class, y_test)\
+plot(model)\
+```\
+\
+####  Estimate Accuracy by Bootstrap method\
+Bootstrap sampling involves taking random samples from the dataset (with re-selection) against which to evaluate the model. In aggregate, the results provide an indication of the variance of the models performance. Typically, large number of resampling iterations are performed (thousands or tends of thousands).  The following example uses a bootstrap with 10 resamples to prepare a Naive Bayes model.\
+\
+##### EXAMPLE 2: Bootstrap - returns Accuracy = 0.958, 0.953, 0.949\
+input:  The final values used for the model were fL = 0, usekernel = TRUE and adjust = 1\
+output: Accuracy = 0.958, 0.953, 0.949\
+model: naive bayes\
+Predicted attribute: class of iris plant\
+\
+```\{r bootStrap, echo = FALSE\}\
+# load libs\
+library(caret)\
+\
+# load dataset\
+data(iris)\
+\
+# define training control\
+train_control <- trainControl(method="boot", number=100)\
+\
+# train the model\
+model <- train(Species~., data=iris, trControl=train_control, method="nb")\
+\
+# The predicted attribute is the class of iris plant.\
+# summarize outcome, get accuracy metric\
+print(model)\
+plot(model)\
+```\
+\
+####  Estimate Accuracy by k-fold Cross Validation method\
+The k-fold cross validation method involves splitting the dataset into k-subsets. For each subset is held out while the model is trained on all other subsets. This process is completed until accuracy is determine for each instance in the dataset, and an overall accuracy estimate is provided. It is a robust method for estimating accuracy, and the size of k and tune the amount of bias in the estimate, with popular values set to 3, 5, 7 and 10.The following example uses 10-fold cross validation to estimate Naive Bayes on the iris dataset.\
+\
+##### EXAMPLE 3 k-fold cross validation - returns Accuracy = 0.967, 1.0, 1.0\
+Input: Confusion matrix\
+## Prediction   setosa versicolor virginica\
+##   setosa         10          0         0\
+##   versicolor      0         10         1\
+##   virginica       0          0         9\
+output: Balanced Accuracy per class: Sentosa: 1.0000 Versicolor: 0.9750 Virginica: 0.9500\
+model: naive bayes\
+Predicted attribute: class of iris plant\
+\
+```\{r kFoldCrossValidation, echo=FALSE\}\
+\
+# load data\
+data(iris)\
+length(iris)\
+\
+# define an 80%/20% train/test split of the dataset\
+split=0.80\
+trainIndex <- createDataPartition(iris$Species, p=split, list=FALSE)\
+\
+data_train <- iris[ trainIndex,]\
+data_test <- iris[-trainIndex,]\
+\
+# train nb model\
+model <- NaiveBayes(Species~., data=data_train)\
+\
+# The predicted attribute is the class of iris plant.\
+# make predictions\
+x_test <- data_test[,1:4]\
+y_test <- data_test[,5]\
+predictions <- predict(model, x_test)\
+predictions$class\
+predictions$class[1]\
+\
+# summarize outcome, get accuracy metric\
+confusionMatrix(predictions$class, y_test)\
+plot(model)\
+```\
+\
+#### Estimate Accuracy by Repeated k-fold Cross Validation method\
+The process of splitting the data into k-folds can be repeated a number of times, this is called Repeated k-fold Cross Validation. The final model accuracy is taken as the mean from the number of repeats.The following example uses 10-fold cross validation with 3 repeats to estimate Naive Bayes on the iris dataset.\
+\
+##### EXAMPLE 4: Repeated k-fold cross validation - returns accuracy 0.957, 0.955, 0.955\
+input:  The final values used for the model were fL = 0, usekernel = TRUE and adjust = 1\
+output: Accuracy = 0.957, 0.955, 0.955\
+model: naive bayes\
+Predicted attribute: class of iris plant\
+\
+```\{r repeatedK-foldXvalid, echo = FALSE\}\
+# load libs\
+library(caret)\
+\
+# load data\
+data(iris)\
+\
+# define training control\
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)\
+\
+# train the model\
+model <- train(Species~., data=iris, trControl=train_control, method="nb")\
+\
+# The predicted attribute is the class of iris plant.\
+# summarize results, get Accuracy metric\
+print(model)\
+plot(model)\
+```\
+\
+#### Estimate Accuracy by Leave One Out Cross Validation method\
+In Leave One Out Cross Validation (LOOCV), a data instance is left out and a model constructed on all other data instances in the training set. This is repeated for all data instances. The following example demonstrates LOOCV to estimate Naive Bayes on the iris dataset. \
+\
+unifreqDF data: When LOOVC is applied to our dataset, unifreqDF, as is, time to finish is over 1 hour, so would need to reduce the sample size for this demo.\
+\
+##### EXAMPLE 5: LOOCV - returns accuracy 0.960, 0.953, 0.960\
+input: The final values used with for the model were fL= 0, usekernel= TRUE and adjust= 1\
+output: Accuracy = 0.960, 0.953, 0.960\
+model: naive bayes\
+Predicted attribute: class of iris plant\
+\
+```\{r LeaveOneOut, echo=FALSE\}\
+\
+# load libs\
+library(caret)\
+\
+# load data\
+data(iris)\
+\
+# define training control\
+train_control <- trainControl(method="LOOCV")\
+\
+# train the model\
+model <- train(Species~., data=iris, trControl=train_control, method="nb")\
+\
+# The predicted attribute is the class of iris plant.\
+# summarize results, get Accuracy metric \
+print(model)\
+plot(model)\
+```\
+\
+```\{r\}\
+#note: 'include=FALSE' is applied to areas of code not of immediate relevance to a summary presentation.  Scripts may be accessed through the appendix as open sourced material.\
+```}
